@@ -1,0 +1,818 @@
+{
+  "name": "WWR — Reddit Article Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 2,3,4"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "=1rQyFkVjmO-mgfE5rHVQiQi3txz2BZCju__kqmojb1yk",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "WWR Reddit Posts Log"
+        },
+        "options": {}
+      },
+      "id": "node-sheets-dedup-check",
+      "name": "Fetch Full Posting Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        944,
+        288
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZpyMvJhTlaSZDsRk",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Select Article').item.json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "node-http-fetch-article",
+      "name": "Fetch Full Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1344,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data || '';\nlet text = html.replace(/<script\\b[^<]*(?:(?!<\\/script>)<[^<]*)*<\\/script>/gi, '');\ntext = text.replace(/<style\\b[^<]*(?:(?!<\\/style>)<[^<]*)*<\\/style>/gi, '');\ntext = text.replace(/<[^>]+>/g, ' ');\ntext = text.replace(/\\s+/g, ' ').trim();\ntext = text.substring(0, 3000);\nreturn [{ json: { clean_text: text } }];"
+      },
+      "id": "node-code-strip-html",
+      "name": "Extract Clean Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "=1rQyFkVjmO-mgfE5rHVQiQi3txz2BZCju__kqmojb1yk",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "WWR Reddit Posts Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rQyFkVjmO-mgfE5rHVQiQi3txz2BZCju__kqmojb1yk/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "node-sheets-get-angles",
+      "name": "Get Recent Angles",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1792,
+        432
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZpyMvJhTlaSZDsRk",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\nconst angles = rows.slice(-10).map(r => r.json.angle).filter(Boolean).join('\\n- ');\nreturn [{ json: { recent_angles: angles || 'none yet' } }];"
+      },
+      "id": "node-code-format-angles",
+      "name": "Format Recent Angles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output;\nlet parsed;\ntry {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(match ? match[0] : raw);\n} catch(e) {\n  throw new Error('Failed to parse AI JSON output: ' + raw);\n}\nreturn [{\n  json: {\n    title: parsed.title,\n    body: parsed.body,\n    angle: parsed.angle,\n    link_strategy: parsed.link_strategy,\n    link_text: parsed.link_text || 'Full breakdown here:',\n    subreddit: $('Select Article').item.json.subreddit,\n    article_url: $('Select Article').item.json.url,\n    article_title: $('Select Article').item.json.title,\n  }\n}];"
+      },
+      "id": "node-code-parse-ai",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiData = $input.first().json;\nconst articleLink = aiData.article_url;\nconst linkStrategy = aiData.link_strategy;\n\nlet body = aiData.body || '';\n\n// Normalize paragraph spacing — collapse 3+ newlines, trim whitespace\nbody = body.replace(/\\n{3,}/g, '\\n\\n').trim();\n\nif (linkStrategy === 'end_of_post') {\n  body = body + '\\n\\nMore here if useful: ' + articleLink;\n}\n\nreturn [{ json: {\n  title: aiData.title,\n  body: body,\n  subreddit: (aiData.subreddit || '').replace('r/', ''),\n  link_strategy: linkStrategy,\n  angle: aiData.angle,\n  article_url: articleLink,\n  article_title: aiData.article_title || ''\n} }];"
+      },
+      "id": "node-code-build-post-body",
+      "name": "Build Post Body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "=1rQyFkVjmO-mgfE5rHVQiQi3txz2BZCju__kqmojb1yk",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "WWR Reddit Posts Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "article_url": "={{ $('Build Post Body').item.json.article_url }}",
+            "article_title": "={{ $('Build Post Body').item.json.article_title }}",
+            "angle": "={{ $('Build Post Body').item.json.angle }}",
+            "reddit_title": "={{ $('Build Post Body').item.json.title }}",
+            "subreddit": "={{ $('Build Post Body').item.json.subreddit }}",
+            "reddit_post_id": "ifttt-posted",
+            "posted_date": "={{ new Date().toISOString() }}",
+            "status": "posted",
+            "link_strategy": "={{ $('Build Post Body').item.json.link_strategy }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "article_url",
+              "displayName": "article_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "article_title",
+              "displayName": "article_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "angle",
+              "displayName": "angle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reddit_title",
+              "displayName": "reddit_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subreddit",
+              "displayName": "subreddit",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reddit_post_id",
+              "displayName": "reddit_post_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "posted_date",
+              "displayName": "posted_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link_strategy",
+              "displayName": "link_strategy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "node-sheets-log-false",
+      "name": "Log Post",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4032,
+        432
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZpyMvJhTlaSZDsRk",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are posting to {{ $('Select Article').item.json.subreddit }}. Given the article content below, extract ONE specific angle (a problem, surprising fact, common misconception, how-something-works, or practical insight) and write a standalone Reddit text post about THAT ANGLE — not a summary of the whole article.\n\nThe post must provide full value without the reader needing to click any link.\n\nRULES:\n1. Pick ONE specific angle — not a product list, not a summary\n2. Title: 60-80 characters, question format or curiosity hook. NEVER 'X Best Y' format. NEVER the article title.\n3. Body: 2-4 paragraphs or 4-6 bullet points, conversational first-person or community tone\n4. End with a genuine discussion question\n5. link_strategy: use 'end_of_post' for r/homeimprovement, r/DIY, r/Plumbing, r/water, r/wellwater, r/climate, r/ClimateActionPlan, r/RenewableEnergy, r/aquaponics, r/Irrigation, r/WaterFilters, r/OrganicGardening; use 'comment' for r/preppers, r/prepping, r/homesteading, r/homestead, r/OffGrid, r/OffGridLiving, r/OffTheGrid, r/OffGridCabins, r/Permaculture, r/SelfSufficiency, r/collapse, r/bugout, r/Bushcraft, r/survivalism; use 'none' for r/ZeroWaste, r/simpleliving; default to 'end_of_post' for any other subreddit\n6. Do NOT mention brand names in title\n7. Do NOT repeat these recent angles:\n- {{ $('Format Recent Angles').item.json.recent_angles }}\n\n8. Format the body with double line breaks (\\n\\n) between each paragraph — never write the body as one single block\n9. Subreddit-specific framing:\n   - r/water: Technical and informational. Focus on contamination science, what the numbers mean, what the data actually shows. No advocacy framing.\n   - r/preppers: Frame as \"here's why you can't rely on regulators to protect your water.\" Self-reliance motivation. What would a prepared person do given this news?\n   - r/ClimateActionPlan: Solutions-forward framing. What policies or programs are working, what's being rolled back and why that matters, what communities can push for.\n   - r/ZeroWaste: frame entirely around reducing plastic bottle waste through home filtration. Do not discuss product specs or well water chemistry.\n   - r/simpleliving: write in first-person as an intentional lifestyle choice. No educational article tone. No list formats.\n   - r/OrganicGardening: focus on how water quality affects garden health or organic growing outcomes. Not general filtration content.\n   - r/OffTheGrid: practical self-sufficiency angle. Emphasize independence from municipal water systems.\n   - r/OffGridCabins: cabin or remote living context. Focus on sourcing and treating water in off-grid locations.\n   - r/WaterFilters: direct and technical. Help people choose or understand how a specific filter type works.\n10. Writing style — sound like a real person, not a policy analyst:\n   - Never use em dashes (—). Restructure the sentence, use a period, or use a comma instead.\n   - Avoid bureaucratic or clinical vocabulary. Replace words like: 'structural gap' (say 'gap' or 'problem'), 'zero sensory signal' (say 'no smell, no taste, nothing to tip you off'), 'systematically underserved' (say 'overlooked' or 'left out'), 'remediated' (say 'treated' or 'cleaned up'), 'explicitly acknowledges' (say 'actually addresses'), 'constitutional mandate' (say 'requirement' or just cut it).\n   - Write like a knowledgeable homeowner or engaged community member, not a researcher or government document.\n   - Short sentences are fine. Fragments are fine. Vary sentence length naturally.\nArticle URL: {{ $('Select Article').item.json.url }}\n\nArticle content:\n{{ $json.clean_text }}\n\nReturn ONLY valid JSON, no markdown:\n{\"title\": \"...\", \"body\": \"...\", \"angle\": \"5-10 word description of chosen angle\", \"link_strategy\": \"end_of_post|comment|none\"}",
+        "options": {
+          "systemMessage": "You are a knowledgeable Reddit user who writes genuinely helpful posts about home water quality, water filtration, and home improvement. Your posts feel like a knowledgeable community member sharing hard-won knowledge — never like a marketer.\n\nThe communities you post to are experienced, skeptical, and quick to downvote anything that smells like content marketing. They reward specificity, honesty about uncertainty, and genuine analysis. They punish generic advice, health fear-mongering, and posts that pivot to recommending a product category right before dropping a link."
+        }
+      },
+      "id": "node-ai-agent",
+      "name": "Generate Reddit Post",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        2176,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-5-20251101",
+          "mode": "list",
+          "cachedResultName": "Claude Opus 4.5"
+        },
+        "options": {}
+      },
+      "id": "node-anthropic-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        2208,
+        704
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "s7X09Nj421WpvE34",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        48,
+        80
+      ],
+      "id": "19178674-25cf-4e7a-aebb-8075402ee7ad",
+      "name": "When clicking 'Execute workflow'"
+    },
+    {
+      "parameters": {
+        "url": "https://worldwaterreserve.com/wp-json/wp/v2/posts",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "100"
+            },
+            {
+              "name": "orderby",
+              "value": "date"
+            },
+            {
+              "name": "order",
+              "value": "desc"
+            },
+            {
+              "name": "status",
+              "value": "publish"
+            },
+            {
+              "name": "_fields",
+              "value": "id,link,title,date,categories,_embedded"
+            },
+            {
+              "name": "_embed",
+              "value": "wp:term"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-wp-api",
+      "name": "Fetch All Articles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        464,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "allArticles",
+        "options": {}
+      },
+      "id": "node-aggregate-articles",
+      "name": "Aggregate Articles",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        672,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull data from upstream nodes by name\nconst articles = $('Fetch All Articles').all().map(i => i.json);\nconst logRows = $('Fetch Full Posting Log').all().map(i => i.json);\n\n// Category ID -> [primary, secondary, ...fallback subreddits]\nconst categorySubredditMap = {\n  303: ['homeimprovement', 'DIY', 'Plumbing', 'WaterFilters'],\n  275: ['homeimprovement', 'DIY', 'Plumbing', 'WaterFilters'],\n  111: ['homeimprovement', 'water', 'DIY'],\n  113: ['homesteading', 'Permaculture', 'OffGridLiving', 'OffTheGrid', 'OffGridCabins', 'OrganicGardening'],\n  169: ['wellwater', 'homesteading', 'homestead', 'OffTheGrid'],\n  278: ['ClimateActionPlan', 'ZeroWaste', 'simpleliving'],\n  110: ['climate'],\n  277: ['Permaculture', 'homesteading', 'homestead', 'OrganicGardening'],\n  304: ['SelfSufficiency', 'homesteading', 'OffGridLiving', 'OffTheGrid', 'OffGridCabins'],\n  112: ['aquaponics', 'homesteading', 'Permaculture'],\n  195: ['climate', 'collapse', 'water', 'preppers', 'ClimateActionPlan'],\n};\nconst DEFAULT_SUBREDDITS = ['homeimprovement', 'DIY'];\n\nconst ACTIVE_CATEGORIES = [195];\n\nconst subredditWeeklyCap = {\n  'homeimprovement': 2,\n  'DIY': 2,\n  'Plumbing': 1,\n  'wellwater': 1,\n  'homesteading': 1,\n  'homestead': 1,\n  'OffGrid': 1,\n  'OffGridLiving': 1,\n  'OffTheGrid': 1,\n  'OffGridCabins': 1,\n  'Permaculture': 1,\n  'SelfSufficiency': 1,\n  'preppers': 1,\n  'prepping': 1,\n  'survivalism': 1,\n  'bugout': 1,\n  'Bushcraft': 1,\n  'collapse': 2,\n  'water': 1,\n  'aquaponics': 1,\n  'Irrigation': 1,\n  'WaterFilters': 1,\n  'climate': 3,\n  'ClimateActionPlan': 1,\n  'RenewableEnergy': 1,\n  'ZeroWaste': 1,\n  'simpleliving': 1,\n  'OrganicGardening': 1,\n};\nconst DEFAULT_CAP = 1;\n\nconst postedUrls = new Set(logRows.map(r => r.article_url).filter(Boolean));\n\nconst sevenDaysAgo = new Date();\nsevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);\nconst weeklyCount = {};\nfor (const row of logRows) {\n  if (!row.posted_date || !row.subreddit) continue;\n  const d = new Date(row.posted_date);\n  if (d >= sevenDaysAgo) {\n    weeklyCount[row.subreddit] = (weeklyCount[row.subreddit] || 0) + 1;\n  }\n}\n\nconst lastPostedAt = {};\nfor (const row of logRows) {\n  if (!row.posted_date || !row.subreddit) continue;\n  const d = new Date(row.posted_date);\n  if (!lastPostedAt[row.subreddit] || d > lastPostedAt[row.subreddit]) {\n    lastPostedAt[row.subreddit] = d;\n  }\n}\n\nconst sorted = [...articles].sort((a, b) => new Date(b.date) - new Date(a.date));\n\nfor (const article of sorted) {\n  const url = article.link;\n  if (postedUrls.has(url)) continue;\n\n  const catIdsForFilter = article.categories || [];\n  if (!catIdsForFilter.some(id => ACTIVE_CATEGORIES.includes(id))) continue;\n\n  const catIds = article.categories || [];\n  let subreddits = DEFAULT_SUBREDDITS;\n  for (const id of catIds) {\n    if (categorySubredditMap[id]) {\n      subreddits = categorySubredditMap[id];\n      break;\n    }\n  }\n\n  const eligibleSubs = subreddits.filter(\n    sub => (weeklyCount[sub] || 0) < (subredditWeeklyCap[sub] || DEFAULT_CAP)\n  );\n\n  if (eligibleSubs.length === 0) continue;\n\n  eligibleSubs.sort((a, b) => {\n    const aTime = lastPostedAt[a] ? lastPostedAt[a].getTime() : 0;\n    const bTime = lastPostedAt[b] ? lastPostedAt[b].getTime() : 0;\n    if (aTime !== bTime) return aTime - bTime;\n    return subreddits.indexOf(a) - subreddits.indexOf(b);\n  });\n\n  const chosenSubreddit = eligibleSubs[0];\n\n  return [{\n    json: {\n      url,\n      title: article.title?.rendered || article.title || '',\n      subreddit: chosenSubreddit,\n      category: catIds[0]?.toString() || 'General',\n    }\n  }];\n}\n\nthrow new Error('No eligible articles found. All recent articles posted or all subreddits at weekly cap.');"
+      },
+      "id": "node-select-article",
+      "name": "Select Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://maker.ifttt.com/trigger/reddit_post/with/key/o8VeDhaVgd9uA-aV8ckgMd5XA1oW-kWh2Aa9hGdU9Aj",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "value1",
+              "value": "={{ $('Build Post Body').item.json.subreddit }}"
+            },
+            {
+              "name": "value2",
+              "value": "={{ $('Build Post Body').item.json.title }}"
+            },
+            {
+              "name": "value3",
+              "value": "={{ $('Build Post Body').item.json.body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-ifttt-reddit",
+      "name": "Post to Reddit via IFTTT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3792,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are reviewing a Reddit post intended for r/{{ $json.subreddit }}.\n\nSTEP 1 — DIAGNOSE FIRST (do this before making any changes):\nFor each of the 7 rules below, write a single line:\n  \"Rule N: PASS — [reason]\" or \"Rule N: FAIL — [what to fix]\"\nOnly rules marked FAIL may be edited. Passing rules must not be touched.\n\nSTEP 2 — APPLY FIXES:\nFor each field (title, body, link_text), evaluate it independently.\nIf no rule applies to that field, or the field passes its rule, copy it VERBATIM — character for character.\nDo not paraphrase, rephrase, or improve passing content.\nIf fixing a violation would require rewriting more than one sentence, leave it unchanged and note it in changes.\n\nHARD CONSTRAINTS:\n- Do NOT rewrite sentences that don't violate a specific rule\n- Do NOT add new facts, examples, or ideas not already in the post\n- Do NOT change the angle or core argument\n- If no rules are violated, return the post exactly as received and set \"changes\" to []\n\n---\n\nTITLE: {{ $json.title }}\n\nBODY:\n{{ $json.body }}\n\nLINK TEXT: {{ $json.link_text }}\n\n---\n\nRULES TO CHECK:\n\nRULE 1 — Title format\nThe title must NOT read like a news wire headline.\nPattern to reject: \"Agency does X. Now it's undoing them.\" or \"X happened. Here's why.\" or \"[Statistic] as [event] [verb]s\"\nRequired format: curiosity gap, discovery hook, or \"What [X] means for [you]\" framing.\nRequired length: 60-80 characters.\nExample of a FAIL and the correct fix:\n  FAIL: \"176M people exposed to PFAS right as federal limits get rolled back\"\n  FIX:  \"What happens to 176M people's tap water when federal PFAS limits disappear?\"\nIf the title is a headline format, rewrite it as a curiosity hook or discovery hook using the same core finding. A marginal tweak to the same headline structure is NOT a fix — the format must change.\n\nRULE 2 — Opener specificity\nCheck ONLY the first sentence of the body.\nGeneric openers to reject: \"This caught me off guard\", \"I didn't expect this\", \"This one surprised me\", \"The timing here is [adjective]\", or any sentence that could apply to ANY article without being specific to this one.\nA sentence PASSES Rule 2 if it contains at least one of: a specific number, a named organization, a named compound, a named law or regulation, a specific year, or a specific place.\nExamples:\n  FAIL: \"This one really surprised me.\"\n  FAIL: \"The timing here is striking.\" (could describe any news story)\n  PASS: \"The EPA finalized PFAS limits in 2024 — and now it's rolling them back.\" (specific org, year, action)\n  PASS: \"The timing here is striking: the EPA finalized the first-ever federal MCLs on six PFAS compounds in 2024.\" (specific facts follow)\nIf the opener contains specific facts immediately in the same sentence or as a colon-continuation, it PASSES — copy it verbatim. Do NOT add a new summary sentence before an already-passing opener.\n\nRULE 3 — No product recommendations\nThe body must not recommend a product or product category — even generically\n(e.g., \"reverse osmosis filters\", \"activated carbon filters\", \"NSF-certified options\").\nIf found, reframe as personal curiosity: \"I looked into home options — apparently\nmost standard filters don't even touch this?\" Never advice, always curiosity.\n\nRULE 4 — Health effects count\nAt most 2 health effects may be cited. If exactly 1 or 2 are cited: PASS — no change needed.\nOnly act if 3 or more are cited: remove the least established ones, keeping the 2 most scientifically recognized.\n\nRULE 5 — Technical jargon definitions\nAny technical standard, certification, or regulatory term must have an inline definition\nimmediately after it (MCL, PPB, ppt, NSF/ANSI, PFAS subtypes, etc.).\nFormat: \"MCLs — the legally enforceable limits utilities must meet\"\nIf a term appears without a definition, add a brief one in a dash clause.\nIf all terms already have inline definitions: PASS — copy verbatim.\n\nRULE 6 — Paragraph count\nThe body should be exactly 3 paragraphs. If 4 or more, cut the paragraph that adds the\nleast new information (typically a summary paragraph or a practical advice pivot).\nIf already 3 paragraphs: PASS — do not restructure.\n\nRULE 7 — Link text specificity\nThe link_text must describe specific content the reader will find behind the link.\nReject: \"More here if useful\", \"Full breakdown here:\", \"More context here\"\nRequired: a concrete 1-sentence description of what's specifically in the linked article.\nIf the link_text already contains specific, named content (data sources, named topics, specific findings): PASS — copy it verbatim.\n\n---\n\nReturn ONLY valid JSON, no markdown, no diagnostic output:\n{\n  \"title\": \"...\",\n  \"body\": \"...\",\n  \"link_text\": \"...\",\n  \"changes\": [\"Rule 1: rewrote title from headline format to curiosity hook\", \"Rule 5: added inline definition for MCL\"]\n}\n\nIf no changes were made, set \"changes\" to [].",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a Reddit post editor enforcing a specific set of quality rules. Your ONLY job is to find and fix rule violations — never to improve style, add ideas, or expand content. You are a proofreader, not a writer.\n\nYou operate field by field. If a field passes all applicable rules, copy it exactly as written — do not rephrase, do not improve, do not touch it.\n\nIf no violations exist anywhere in the post, return the post unchanged."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "node-llm-editor",
+      "name": "Edit Reddit Post",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2800,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-opus-4-5-20251101",
+          "mode": "list",
+          "cachedResultName": "Claude Opus 4.5"
+        },
+        "options": {}
+      },
+      "id": "node-anthropic-model-editor",
+      "name": "Anthropic Chat Model (Editor)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        2832,
+        704
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "s7X09Nj421WpvE34",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.text;\nlet edited;\ntry {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  edited = JSON.parse(match ? match[0] : raw);\n} catch(e) {\n  const fallback = $('Parse AI Response').item.json;\n  return [{ json: { ...fallback, changes: ['editor parse failed — using original'] } }];\n}\nconst original = $('Parse AI Response').item.json;\nreturn [{\n  json: {\n    title: edited.title || original.title,\n    body: edited.body || original.body,\n    link_text: edited.link_text || original.link_text,\n    changes: edited.changes || [],\n    angle: original.angle,\n    link_strategy: original.link_strategy,\n    subreddit: original.subreddit,\n    article_url: original.article_url,\n    article_title: original.article_title,\n  }\n}];"
+      },
+      "id": "node-code-parse-editor",
+      "name": "Parse Editor Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-link-only",
+              "leftValue": "={{ $json.subreddit }}",
+              "rightValue": "^(environment|climate|collapse)$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and",
+          "conditions[0]": {
+            "rightValue": "^(climate|collapse)$"
+          }
+        },
+        "options": {}
+      },
+      "id": "node-if-post-type",
+      "name": "Link-Only Subreddit?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3552,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://maker.ifttt.com/trigger/reddit_link_post/with/key/o8VeDhaVgd9uA-aV8ckgMd5XA1oW-kWh2Aa9hGdU9Aj",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "value1",
+              "value": "={{ $('Build Post Body').item.json.subreddit }}"
+            },
+            {
+              "name": "value2",
+              "value": "={{ $('Build Post Body').item.json.title }}"
+            },
+            {
+              "name": "value3",
+              "value": "={{ $('Build Post Body').item.json.article_url }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-ifttt-reddit-link",
+      "name": "Post Link to Reddit via IFTTT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3792,
+        592
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking 'Execute workflow'": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Articles": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Articles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Articles": {
+      "main": [
+        [
+          {
+            "node": "Fetch Full Posting Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Full Posting Log": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Angles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Angles": {
+      "main": [
+        [
+          {
+            "node": "Format Recent Angles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Recent Angles": {
+      "main": [
+        [
+          {
+            "node": "Select Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Article": {
+      "main": [
+        [
+          {
+            "node": "Fetch Full Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Full Article": {
+      "main": [
+        [
+          {
+            "node": "Extract Clean Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Clean Text": {
+      "main": [
+        [
+          {
+            "node": "Generate Reddit Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Reddit Post",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Reddit Post": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Edit Reddit Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Editor)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Edit Reddit Post",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Reddit Post": {
+      "main": [
+        [
+          {
+            "node": "Parse Editor Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Editor Response": {
+      "main": [
+        [
+          {
+            "node": "Build Post Body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Post Body": {
+      "main": [
+        [
+          {
+            "node": "Link-Only Subreddit?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link-Only Subreddit?": {
+      "main": [
+        [
+          {
+            "node": "Post Link to Reddit via IFTTT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post to Reddit via IFTTT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Link to Reddit via IFTTT": {
+      "main": [
+        [
+          {
+            "node": "Log Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Reddit via IFTTT": {
+      "main": [
+        [
+          {
+            "node": "Log Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "HMzPQIxq7ffqYhUs",
+    "availableInMCP": false
+  },
+  "versionId": "fd531e69-a1cb-4ce9-9b7e-c28790555804",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f1e6a3a3627c63fb1a61b7d4a3749e2a799e9e085d7dbcc4d91f8f4d41277173"
+  },
+  "id": "JzxPaP0Z9X9ZHlJk",
+  "tags": []
+}
