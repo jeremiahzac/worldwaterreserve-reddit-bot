@@ -40,12 +40,39 @@ Reddit communities.
 
 ## Subreddits
 
-Posts are routed to one of the following communities based on article topic:
+Posts are routed to one of the following communities based on article topic.
+Each subreddit has a weekly posting cap enforced by the workflow.
 
-r/homeimprovement, r/DIY, r/Plumbing, r/wellwater, r/homesteading, r/homestead,
-r/Permaculture, r/OffGridLiving, r/OffTheGrid, r/OffGridCabins, r/SelfSufficiency,
-r/preppers, r/climate, r/collapse, r/water, r/ClimateActionPlan, r/WaterFilters,
-r/aquaponics, r/OrganicGardening, r/ZeroWaste, r/simpleliving
+| Subreddit | Cap/Week | Topic Category |
+|---|---|---|
+| r/homeimprovement | 2 | Water Filtration, Water Management |
+| r/DIY | 2 | Water Filtration, Water Management |
+| r/climate | 3 | News, Water Crisis |
+| r/collapse | 2 | News |
+| r/homesteading | 1 | Rainwater Harvesting, Well Water, Permaculture, Self Sufficiency |
+| r/Permaculture | 1 | Rainwater Harvesting, Permaculture, Aquaponics |
+| r/Plumbing | 1 | Water Filtration |
+| r/wellwater | 1 | Well Water Treatment |
+| r/homestead | 1 | Well Water, Permaculture |
+| r/preppers | 1 | News |
+| r/prepping | 1 | News, Self Sufficiency |
+| r/survivalism | 1 | Self Sufficiency, Well Water |
+| r/bugout | 1 | Self Sufficiency |
+| r/Bushcraft | 1 | Self Sufficiency, Well Water |
+| r/WaterFilters | 1 | Water Filtration |
+| r/OffTheGrid | 1 | Rainwater Harvesting, Well Water, Self Sufficiency |
+| r/OffGridCabins | 1 | Rainwater Harvesting, Self Sufficiency |
+| r/OffGridLiving | 1 | Rainwater Harvesting, Self Sufficiency |
+| r/OffGrid | 1 | Self Sufficiency |
+| r/SelfSufficiency | 1 | Self Sufficiency |
+| r/ClimateActionPlan | 1 | Community Resilience, News |
+| r/ZeroWaste | 1 | Community Resilience |
+| r/simpleliving | 1 | Community Resilience |
+| r/OrganicGardening | 1 | Permaculture, Rainwater Harvesting |
+| r/RenewableEnergy | 1 | Self Sufficiency |
+| r/water | 1 | Water Management, News |
+| r/aquaponics | 1 | Aquaponics |
+| r/Irrigation | 1 | Water Management, Permaculture |
 
 ## Tech Stack
 
@@ -60,4 +87,3 @@ r/aquaponics, r/OrganicGardening, r/ZeroWaste, r/simpleliving
 `WWR — Reddit Article Publisher.json` — the complete n8n workflow definition,
 including all node configurations, routing logic, weekly cap enforcement,
 deduplication checks, and the AI prompt used to generate posts.
-
